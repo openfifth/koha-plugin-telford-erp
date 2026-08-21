@@ -1,0 +1,185 @@
+name: CI
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    tags:
+      - 'v*.*.*'
+  pull_request:
+    branches:
+      - main
+  schedule:
+    - cron: "0 6 1,15 * *"
+
+jobs:
+  unit_tests:
+    name: Run unit tests
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        koha-version: [main, stable, oldstable]
+
+    steps:
+      - name: Checkout plugin code
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Get Koha Version Branch Name
+        id: koha-version
+        uses: "bywatersolutions/github-action-koha-get-version-by-label@v2"
+        with:
+          version-label: "${{ matrix.koha-version }}"
+
+      - name: Set up environment variables
+        run: |
+          IFS='/' read -r -a parts <<< "$GITHUB_REPOSITORY"
+          GITHUB_REPO="${parts[1]}"
+          echo "GITHUB_REPO=$GITHUB_REPO" >> $GITHUB_ENV
+          echo "KOHA_BRANCH=${{ steps.koha-version.outputs.current-branch-name }}" >> $GITHUB_ENV
+          echo "PLUGINS_DIR=$(pwd)/.." >> $GITHUB_ENV
+          echo "SYNC_REPO=$(pwd)/../kohaclone" >> $GITHUB_ENV
+
+      - name: Check out Koha
+        run: |
+          cd ..
+          git clone --branch ${{ env.KOHA_BRANCH }} --single-branch --depth 1 https://github.com/Koha-Community/Koha.git kohaclone
+
+      - name: Install koha-testing-docker
+        run: |
+          cd ..
+          git clone https://gitlab.com/koha-community/koha-testing-docker.git
+          cd koha-testing-docker
+          cp env/defaults.env .env
+          echo "$(pwd)/bin" >> $GITHUB_PATH
+
+      - name: Launch KTD instance with plugins support
+        run: |
+          sudo sysctl -w vm.max_map_count=262144
+          cd ../koha-testing-docker
+          export LOCAL_USER_ID=$(id -u)
+          export KTD_HOME=$(pwd)
+          export SKIP_L10N=yes
+          # Use version-major-minor but handle main branch case
+          if [ "${{ matrix.koha-version }}" = "main" ]; then
+            export KOHA_IMAGE=main
+          else
+            export KOHA_IMAGE=${{ steps.koha-version.outputs.version-major-minor }}
+          fi
+          ktd --name telford --plugins up -d
+
+      - name: Wait for KTD to be ready
+        run: |
+          export KTD_HOME=$(pwd)/../koha-testing-docker
+          ktd --name telford --wait-ready 240
+
+      - name: Install plugins in KTD
+        run: |
+          export KTD_HOME=$(pwd)/../koha-testing-docker
+          ktd --name telford --shell --run "cd /kohadevbox/koha && perl misc/devel/install_plugins.pl"
+
+      - name: Run plugin tests
+        run: |
+          export KTD_HOME=$(pwd)/../koha-testing-docker
+          ktd --name telford --shell --run "
+            cd /kohadevbox/plugins/${{ env.GITHUB_REPO }} &&
+            export KOHA_PLUGIN_DIR=\$(pwd) &&
+            export PERL5LIB=\$PERL5LIB:. &&
+            sudo cpanm --notest TAP::Harness::JUnit &&
+            JUNIT_OUTPUT_FILE=junit.xml prove -v -r -s t/ --harness=TAP::Harness::JUnit
+          "
+
+      - name: Publish test results
+        uses: EnricoMi/publish-unit-test-result-action@v2
+        if: always()
+        with:
+          files: |
+            junit.xml
+          check_name: "Test Results (Koha ${{ matrix.koha-version }})"
+
+      - name: Show logs on failure
+        if: failure()
+        run: |
+          export KTD_HOME=$(pwd)/../koha-testing-docker
+          echo "=== KTD instance status ==="
+          ktd --name telford --list || true
+          echo "=== Koha error logs ==="
+          ktd --name telford --shell --run "tail -50 /var/log/koha/kohadev/plack-intranet-error.log" || true
+          echo "=== Container logs ==="
+          docker logs template-koha-1 --tail 50 || true
+
+      - name: Cleanup KTD instance
+        if: always()
+        run: |
+          export KTD_HOME=$(pwd)/../koha-testing-docker
+          ktd --name telford down || true
+
+  release:
+    needs: unit_tests
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Get Koha Version Branch Name
+        id: koha-version-oldstable
+        uses: "bywatersolutions/github-action-koha-get-version-by-label@v2"
+        with:
+          version-label: "oldstable"
+
+      - name: Read package.json
+        id: package
+        run: |
+          echo "plugin_path=$(jq -r '.plugin.pm_path' package.json)" >> $GITHUB_OUTPUT
+
+      - name: Build Koha Plugin kpz artifact
+        id: kpz
+        uses: "bywatersolutions/github-action-koha-plugin-create-kpz@master"
+        with:
+          release-version: ${{ github.ref_name }}
+          release-name: ${{ github.event.repository.name }}
+          minimum-version: ${{ steps.koha-version-oldstable.outputs.version-major-minor }}
+          plugin-module: ${{ steps.package.outputs.plugin_path }}
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            ${{ steps.kpz.outputs.filename }}
+            CHANGELOG.md
+          generate_release_notes: true
+
+  keepalive:
+    name: Keep Alive
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v5
+    - name: Check age and push commit if needed
+      run: |
+        LAST_COMMIT=$( git --no-pager log -1 --format=%ct )
+        NOW=$(date +%s)
+        DIFF=$(($NOW-$LAST_COMMIT))
+        DAYS=$(($DIFF/86400))
+        git config --global user.email jacob.omara@openfifth.co.uk
+        git config --global user.name "Jacob O'Mara"
+        git commit --allow-empty -m "Automated commit from keep alive workflow"
+        if [ "$DAYS" -gt "50" ]; then git push; fi
