@@ -14,6 +14,11 @@ along with the comparison links — do not edit the heading or the links by hand
 
 ### Added
 
+- Fixed-width record writer (`Telford::Format`) for the batch header and line detail records, unit-tested against `docs/example.tsv`
+- Fund → `subcc` and vendor → `apar_id` mapping UI (`configure()`)
+- `generate_batch()`: builds a batch from closed, not-yet-submitted invoices (order lines + invoice adjustments), with a persistent K001–K999 batch id sequence
+- `install`/`upgrade`/`uninstall`: submitted-invoices, cron-run-log and batch-sequence tables
+
 ### Changed
 
 ### Fixed

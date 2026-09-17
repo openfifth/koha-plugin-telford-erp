@@ -27,24 +27,40 @@ All three existing plugins (`wcc-sap`, `wscc-oracle`, `rbkc-oracle`) are the **s
 
 **wscc-oracle** is the most mature reference (income/cashup export too, plus a `docs/` folder with field-mapping guides) — worth mining for the mapping-config and cron-window patterns even though Telford's output format is much simpler.
 
-## Key open questions (need answering before/while building)
+## Resolved questions (confirmed 2026-09-17 against a live Telford DB copy in KTD `o5th25`)
 
-1. **What drives `subcc`?** Koha has no `itemtype` field on `aqorders`. The two realistic sources are: (a) `aqbudgets.budget_code` — i.e. Telford runs separate funds per material category, reusing the sibling plugins' "fund → code" mapping pattern; or (b) `aqorders.sort1`/`sort2` statistical fields, which Koha designed for exactly this kind of orthogonal categorisation. Need to check Telford's actual fund/budget structure in their live Koha to know which.
-2. **Which invoices are in scope?** Siblings filter by `booksellerid.name LIKE 'XXX%'` — is there an equivalent Telford-only filter, or is this a single-tenant Koha instance where all closed invoices qualify?
-3. **Batch ID persistence** — needs a durable, safe-under-concurrency counter (new table), reset K999→K001. Does Telford need this to survive plugin reinstall/upgrade, and is a single global counter fine (vs per-day)?
-4. **Batch header totals format** — spec says "Format 9(14)99" for `Total Debits`/`Total Credits` (17 chars) while line `amount` is a 10-char plain integer-pence field. Need to confirm whether the header total is also pence-as-integer or pounds-with-implied-2-decimals (COBOL picture clause reads like the latter).
-5. **Credit note detection** — Koha has no `is_credit_note` flag; siblings infer credits from negative `unitprice`/`shipmentcost`/adjustment amounts. Confirm this convention is sufficient for Telford's credit notes too.
-6. **`description` (transaction number)** — spec says "Koha generated transaction number" width 10. Likely `aqorders.ordernumber` or `aqinvoices.invoiceid`, need to confirm which Telford actually wants as the cross-reference key (siblings use `invoicenumber` for this role, which is vendor-supplied, not Koha-generated — so this is subtly different from all three siblings).
+1. **`account` (`R4016`)** — confirmed constant. No column anywhere in `aqbudgets`/`aqorders`/`aqbooksellers` holds anything like it; it's a literal baked into the plugin (`$Koha::Plugin::Com::OpenFifth::Telford::Format::ACCOUNT`).
+2. **`costc` (`LLAA`)** — confirmed constant, same reasoning (`::COSTC`).
+3. **`subcc`** — confirmed driven by `aqbudgets.budget_code`, mapped via a plugin config table (mirrors the siblings' `fund_field_mappings` pattern), not `sort1`/`sort2` (both are blank on every live fund). Evidence: the live "Library Bookfund 2026-2027" period has a fund named exactly `AUDIO` ("Audio Books"), which maps cleanly to `LBAB`; the other live funds (`AF`, `ANF`, `JUN`, `LP`) are all general book funds and map to `LBPB`. No fund yet exists for `LBPP` (Papers & Periodicals) or `LBRO` (Reference Online) — the configure UI maps by `budget_code` and defaults anything unmapped to `UNMAPPED` (visible in the output so staff can fix it), rather than guessing.
+4. **`analysis` (`Z99`)** — confirmed constant, same reasoning as #1/#2 (`::ANALYSIS`).
+5. **`tax_code`** — confirmed: `aqorders.tax_rate_on_receiving == 0.20` → `01`, everything else (incl. `0.00`) → `04`. Matches live order data exactly (two real lines: rate `0.2000`→should be `01`, rate `0.0000`→`04`).
+6. **`description`** — confirmed zero-padded `aqorders.ordernumber`, 10 digits, cross-reference only (`Format::format_description`).
+
+### New findings surfaced while confirming the above
+
+- **`ext_inv_ref`** is `aqinvoices.invoicenumber` — real values (`O5Jul0126`, `O56001`) fit the 10-char field comfortably.
+- **`voucher_date`** should be `aqinvoices.billingdate`, but it is **`NULL` on every live invoice** — finance staff aren't currently entering the supplier's invoice date in Koha. Implemented with a fallback chain (`billingdate` → `shipmentdate` → `closedate`) and a logged warning when it falls back, but this needs a process fix on Telford's side, not just a code workaround.
+- **`apar_id`** can't come from `aqbooksellers.accountnumber` — it's blank on all 5 live vendors. Implemented as its own plugin-config mapping (vendor → 6-digit code), same shape as the fund mapping, rather than relying on that field.
+- **Credit notes** show up as `aqinvoice_adjustments` rows (negative `adjustment`, linked to a `budget_id`, no order line) — confirmed with a real row (`-5.00`, `budget_id=3`). These need their own line-generation path (implemented), separate from order lines.
+- **Batch header totals** — re-reading the spec text resolves this cleanly (no longer an open question): both `Total Debits` and `Total Credits` are explicitly stated to be "in pence" and "a positive unsigned value", i.e. same units as the line `amount` field, just wider and split by sign.
+
+## Still open / needs a decision
+
+1. **VAT basis on multi-quantity order lines** — all real order lines seen so far have `quantity = 1`, so it's untested whether `tax_value_on_receiving` is the *total* tax for the line or a *per-unit* value. `generate_batch()` currently assumes it's already the line total (not multiplied by quantity again) — needs verifying against a real `quantity > 1` invoice.
+2. **`tax_code` on adjustment lines** — `aqinvoice_adjustments` has no tax rate column at all, so credit/postage adjustment lines currently default to `04`. Confirm with Telford whether that's actually correct for their adjustments.
+3. **`description` collision risk** — order lines use zero-padded `ordernumber`, adjustment lines use zero-padded `adjustment_id`; these are separate auto-increment sequences and could collide. Low risk in practice, but worth flagging.
+4. **Which invoices are in scope** — is this instance single-tenant (all closed invoices are Telford's), or does the export need a vendor/branch filter like the siblings' `name LIKE 'XXX%'`?
+5. **Batch ID persistence semantics** — implemented as a single global counter in a new `plugin_telford_batch_sequence` table, incremented under a row lock. Confirm a single global sequence (rather than per-day) is what Telford's ERP expects.
 
 ## Plan of action
 
-1. **Scaffold** the plugin from the house template (closest analogue: `rbkc-oracle`, since it's the simplest of the three): `package.json`, `Koha/Plugin/Com/OpenFifth/Telford.pm` (or a name matching the actual receiving system once confirmed — spec just calls it "ERP (PL)"), `UploadController.pm`, `t/`, `docs/`.
-2. **Resolve the open questions above** with the Telford stakeholder — critically #1 (subcc source) and #4 (header total format), since they change the data model.
-3. **Build the fixed-width record writer** — new module (none of the siblings need this; they're all delimited). Needs per-field width/justification/padding rules (char fields space-padded left-justified, numeric fields space or zero-padded right-justified, signed amounts), validated against `example.tsv` byte-for-byte.
-4. **Batch ID counter** — new `plugin_telford_batch_sequence` (or reuse `plugin_data`) storing the last-used K-number, with wraparound at K999→K001, incremented atomically per run.
-5. **Data extraction** — `Koha::Acquisition::Invoices` (closed, date-ranged) → `aqorders` + `aqinvoice_adjustments`, resolving `subcc` via whichever mapping source is confirmed in step 2, `tax_code` via a hardcoded 20%→01 / 0%→04 lookup, `apar_id` from `aqbooksellers.accountnumber`.
-6. **Batch header aggregation** — num_trans, total_debits, total_credits computed from the same line set.
-7. **Reuse the house infrastructure wholesale**: `install()/uninstall()/upgrade()` creating submitted-invoices + cron-run-log tables, `configure()` for mapping + SFTP/local transport + schedule, `cronjob_nightly()`, two-step manual `report()`, `manage-submissions.tt`, REST `UploadController` for on-demand upload — all directly portable from `rbkc-oracle`/`wcc-sap` with the SAP/Oracle-specific bits swapped out.
-8. **Tests** — unit tests for the fixed-width writer (field widths, padding, sign handling) and batch-ID rollover, mirroring `t/01-oracle-integration.t`.
-9. **Docs** — README + a field-mapping guide (mirroring `wscc-oracle/docs/ACQUISITIONS_FIELD_MAPPING_GUIDE.md`), documenting the subcc/tax_code/apar_id mapping decisions once confirmed.
-10. **Validate against KTD** with real acquisitions/invoice fixtures, byte-diffing generated output against `example.tsv`'s structure before considering it done.
+1. ✅ **Scaffold** the plugin from the house template — done (`Koha::Plugin::Com::OpenFifth::Telford`, `package.json`, `t/`, `docs/`).
+2. ✅ **Resolve the open questions** — done for the 6 order-line-level questions, against a live Telford DB copy in KTD `o5th25` (see above). A handful of new, narrower questions remain (see "Still open" above) but no longer block core development.
+3. ✅ **Build the fixed-width record writer** — done: `Koha/Plugin/Com/OpenFifth/Telford/Format.pm`, unit-tested in `t/01-format.t`, validated byte-for-byte against `docs/example.tsv`.
+4. ✅ **Batch ID counter** — done: `plugin_telford_batch_sequence`, single global counter, row-locked increment, K001→K999→K001 wraparound (`Format::next_batch_number`).
+5. ✅ **Data extraction** — done: `generate_batch()` in `Telford.pm` walks `Koha::Acquisition::Invoices` (closed, date-ranged, not-yet-submitted) → `aqorders` + `Koha::Acquisition::Invoice::Adjustments`, resolving `subcc` and `apar_id` via the new plugin-config mappings and `tax_code` via `Format::tax_code_for_rate`.
+6. ✅ **Batch header aggregation** — done: `num_trans`/`total_debits`/`total_credits` computed alongside the line loop in `generate_batch()`.
+7. ⬜ **Reuse the house infrastructure**: `cronjob_nightly()`, two-step manual `report()` UI, `manage-submissions.tt`, REST `UploadController`, SFTP/local delivery — not yet wired up. `configure()` currently only covers the fund/vendor mapping tables; transport + schedule config from the sibling plugins still needs porting across.
+8. ✅ **Tests** — `t/01-format.t` covers the fixed-width writer and batch-ID rollover, runs on the host with plain `prove` (no KTD needed). Still needed: a DB-backed test for `generate_batch()` itself (needs KTD/fixtures, per `t/01-oracle-integration.t`'s pattern).
+9. ⬜ **Docs** — a field-mapping guide (mirroring `wscc-oracle/docs/ACQUISITIONS_FIELD_MAPPING_GUIDE.md`) once the "still open" items above are settled with Telford.
+10. ⬜ **Validate against KTD** with real acquisitions/invoice fixtures — `generate_batch()` has not yet been run inside `o5th25`; next session should call it against the live data and byte-diff against `docs/example.tsv`'s structure.

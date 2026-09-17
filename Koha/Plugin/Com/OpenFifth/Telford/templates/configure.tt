@@ -18,14 +18,60 @@
                     <input type="hidden" name="class" value="[% CLASS %]"/>
                     <input type="hidden" name="method" value="[% METHOD %]"/>
                     <input type="hidden" name="save" value="1" />
+
                     <fieldset class="rows">
-                        <ol>
-                            <li>
-                                <label for="my_message">Message: </label>
-                                <input type="text" name="my_message" value="[% my_message %]" />
-                            </li>
-                        </ol>
+                        <legend>Fund &rsaquo; sub cost centre mapping</legend>
+                        <p>Map each Koha fund to one of the four <code>subcc</code> codes the ERP interface accepts. Funds left unmapped will export as <code>UNMAPPED</code> and need fixing before the file is sent on.</p>
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Fund code</th>
+                                    <th>Fund name</th>
+                                    <th>Sub cost centre</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                [% FOREACH fund IN funds %]
+                                <tr>
+                                    <td>[% fund.budget_code | html %]</td>
+                                    <td>[% fund.budget_name | html %]</td>
+                                    <td>
+                                        <select name="fund_subcc_[% fund.budget_code | html %]">
+                                            <option value="">-- Unmapped --</option>
+                                            [% FOREACH code IN subcc_codes %]
+                                            <option value="[% code | html %]" [% IF fund_mappings.item(fund.budget_code) == code %]selected="selected"[% END %]>[% code | html %]</option>
+                                            [% END %]
+                                        </select>
+                                    </td>
+                                </tr>
+                                [% END %]
+                            </tbody>
+                        </table>
                     </fieldset>
+
+                    <fieldset class="rows">
+                        <legend>Vendor &rsaquo; ERP creditor (apar_id) mapping</legend>
+                        <p>The ERP's 6-digit creditor number for each vendor. This cannot be read from Koha's own vendor "account number" field, since it is not populated for Telford.</p>
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Vendor</th>
+                                    <th>ERP creditor number (apar_id)</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                [% FOREACH vendor IN vendors %]
+                                <tr>
+                                    <td>[% vendor.name | html %]</td>
+                                    <td>
+                                        <input type="text" size="6" maxlength="6" name="vendor_apar_[% vendor.id | html %]" value="[% vendor_mappings.item(vendor.id) | html %]" />
+                                    </td>
+                                </tr>
+                                [% END %]
+                            </tbody>
+                        </table>
+                    </fieldset>
+
                     <fieldset class="action">
                         <input type="submit" value="Save configuration" />
                         <a class="cancel" href="/cgi-bin/koha/plugins/plugins-home.pl">Cancel</a>
