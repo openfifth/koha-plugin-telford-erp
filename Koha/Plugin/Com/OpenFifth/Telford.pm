@@ -20,7 +20,7 @@ use Mojo::JSON qw(encode_json decode_json);
 
 use Koha::Plugin::Com::OpenFifth::Telford::Format;
 
-our $VERSION         = '0.1.0';
+our $VERSION         = '0.1.1';
 our $MINIMUM_VERSION = "24.11.00.000";
 
 our $metadata = {
