@@ -26,3 +26,6 @@ build/
 
 # Test coverage
 coverage/
+
+# Locally-delivered batch files (real financial data, never committed)
+Koha/Plugin/Com/OpenFifth/Telford/output/

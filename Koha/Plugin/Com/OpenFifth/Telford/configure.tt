@@ -1,0 +1,106 @@
+[% USE KohaDates %]
+[% INCLUDE 'doc-head-open.inc' %]
+<title>Configure Telford ERP Integration</title>
+[% INCLUDE 'doc-head-close.inc' %]
+</head>
+<body>
+[% INCLUDE 'header.inc' %]
+[% INCLUDE 'cat-search.inc' %]
+
+<div id="breadcrumbs"><a href="/cgi-bin/koha/mainpage.pl">Home</a> &rsaquo; <a href="/cgi-bin/koha/plugins/plugins-home.pl">Plugins</a> &rsaquo; Telford ERP Integration &rsaquo; Configure</div>
+
+<div class="main container-fluid">
+    <div class="row">
+        <div class="col-sm-10 col-sm-push-2">
+            <main>
+                <h1>Telford ERP Integration</h1>
+                <form method="post">
+                    <input type="hidden" name="class" value="[% CLASS %]"/>
+                    <input type="hidden" name="method" value="[% METHOD %]"/>
+                    <input type="hidden" name="save" value="1" />
+
+                    <fieldset class="rows">
+                        <legend>Fund &rsaquo; sub cost centre mapping</legend>
+                        <p>Map each Koha fund to one of the four <code>subcc</code> codes the ERP interface accepts. Funds left unmapped will export as <code>UNMAPPED</code> and need fixing before the file is sent on.</p>
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Fund code</th>
+                                    <th>Fund name</th>
+                                    <th>Sub cost centre</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                [% FOREACH fund IN funds %]
+                                <tr>
+                                    <td>[% fund.budget_code | html %]</td>
+                                    <td>[% fund.budget_name | html %]</td>
+                                    <td>
+                                        <select name="fund_subcc_[% fund.budget_code | html %]">
+                                            <option value="">-- Unmapped --</option>
+                                            [% FOREACH code IN subcc_codes %]
+                                            <option value="[% code | html %]" [% IF fund_mappings.item(fund.budget_code) == code %]selected="selected"[% END %]>[% code | html %]</option>
+                                            [% END %]
+                                        </select>
+                                    </td>
+                                </tr>
+                                [% END %]
+                            </tbody>
+                        </table>
+                    </fieldset>
+
+                    <p>The ERP creditor number and voucher date on each exported line come straight from the vendor's "Account number" and the invoice's "Billing date" fields in Koha - there's nothing to configure here for those. See <code>docs/DATA_REQUIREMENTS.md</code> if invoices are being skipped from the export.</p>
+
+                    <fieldset class="rows">
+                        <legend>Delivery</legend>
+                        <ol>
+                            <li>
+                                <label for="output">Output method:</label>
+                                <select name="output" id="output">
+                                    <option value="file" [% UNLESS output == 'upload' %]selected="selected"[% END %]>Write to local file (output/ inside the plugin)</option>
+                                    <option value="upload" [% IF output == 'upload' %]selected="selected"[% END %]>Upload via configured (S)FTP server</option>
+                                </select>
+                            </li>
+                            [% IF available_transports.count %]
+                            <li>
+                                <label for="transport_server">(S)FTP server to transfer to:</label>
+                                <select name="transport_server" id="transport_server">
+                                    <option value="" [% UNLESS transport_server %]selected="selected"[% END %]>-- None --</option>
+                                    [% FOREACH transport IN available_transports %]
+                                    <option value="[% transport.file_transport_id %]" [% IF transport.file_transport_id == transport_server %]selected="selected"[% END %]>[% transport.name || transport.host %]</option>
+                                    [% END %]
+                                </select>
+                            </li>
+                            [% ELSE %]
+                            <li>No (S)FTP transports are configured yet (Koha administration &rsaquo; File transports). Local file output will be used regardless of the setting above until one exists.</li>
+                            [% END %]
+                        </ol>
+                    </fieldset>
+
+                    <fieldset class="rows">
+                        <legend>Nightly cron schedule</legend>
+                        <p>Days of the week the nightly cron should run on. Each run covers everything closed since the last scheduled day, up to yesterday.</p>
+                        <span class="run-days-inline">
+                            <label class="inline"><input type="checkbox" name="days" value="0" [% IF transport_days.sunday %]checked="checked"[% END %]/> Sun</label>
+                            <label class="inline"><input type="checkbox" name="days" value="1" [% IF transport_days.monday %]checked="checked"[% END %]/> Mon</label>
+                            <label class="inline"><input type="checkbox" name="days" value="2" [% IF transport_days.tuesday %]checked="checked"[% END %]/> Tue</label>
+                            <label class="inline"><input type="checkbox" name="days" value="3" [% IF transport_days.wednesday %]checked="checked"[% END %]/> Wed</label>
+                            <label class="inline"><input type="checkbox" name="days" value="4" [% IF transport_days.thursday %]checked="checked"[% END %]/> Thu</label>
+                            <label class="inline"><input type="checkbox" name="days" value="5" [% IF transport_days.friday %]checked="checked"[% END %]/> Fri</label>
+                            <label class="inline"><input type="checkbox" name="days" value="6" [% IF transport_days.saturday %]checked="checked"[% END %]/> Sat</label>
+                        </span>
+                    </fieldset>
+
+                    <fieldset class="action">
+                        <input type="submit" value="Save configuration" />
+                        <a class="cancel" href="/cgi-bin/koha/plugins/plugins-home.pl">Cancel</a>
+                    </fieldset>
+                </form>
+            </main>
+        </div>
+        <div class="col-sm-2 col-sm-pull-10">
+            [% INCLUDE 'tools-menu.inc' %]
+        </div>
+    </div>
+</div>
+[% INCLUDE 'intranet-bottom.inc' %]

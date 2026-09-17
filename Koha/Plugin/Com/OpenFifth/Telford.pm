@@ -10,8 +10,12 @@ use Koha::Acquisition::Invoices;
 use Koha::Acquisition::Invoice::Adjustments;
 use Koha::Acquisition::Funds;
 use Koha::Acquisition::Booksellers;
+use Koha::File::Transports;
 use Koha::Logger;
 
+use File::Path qw(make_path);
+use File::Spec;
+use List::Util qw(max);
 use Mojo::JSON qw(encode_json decode_json);
 
 use Koha::Plugin::Com::OpenFifth::Telford::Format;
@@ -139,10 +143,21 @@ sub configure {
             map  { { budget_code => $_->budget_code, budget_name => $_->budget_name } }
             Koha::Acquisition::Funds->search( {}, { order_by => 'budget_code' } )->as_list;
 
+        my @days_of_week = qw(sunday monday tuesday wednesday thursday friday saturday);
+        my $transport_days = {
+            map  { $days_of_week[$_] => 1 }
+            grep { defined $days_of_week[$_] }
+            split( ',', $self->retrieve_data('transport_days') // '' )
+        };
+
         $template->param(
-            funds         => \@funds,
-            fund_mappings => $self->_fund_subcc_mappings,
-            subcc_codes   => \@Koha::Plugin::Com::OpenFifth::Telford::Format::SUBCC_CODES,
+            funds                => \@funds,
+            fund_mappings        => $self->_fund_subcc_mappings,
+            subcc_codes          => \@Koha::Plugin::Com::OpenFifth::Telford::Format::SUBCC_CODES,
+            output               => $self->retrieve_data('output') || 'file',
+            transport_server     => $self->retrieve_data('transport_server'),
+            transport_days       => $transport_days,
+            available_transports => Koha::File::Transports->search(),
         );
 
         $self->output_html( $template->output() );
@@ -156,7 +171,16 @@ sub configure {
             }
         }
 
-        $self->store_data( { fund_subcc_mappings => encode_json( \%fund_mappings ) } );
+        my @selected_days = $cgi->multi_param('days');
+
+        $self->store_data(
+            {
+                fund_subcc_mappings => encode_json( \%fund_mappings ),
+                output              => scalar $cgi->param('output'),
+                transport_server    => scalar $cgi->param('transport_server'),
+                transport_days      => join( ',', sort { $a <=> $b } @selected_days ),
+            }
+        );
         $self->go_home();
     }
 }
@@ -369,6 +393,277 @@ sub mark_invoices_submitted {
     }
 
     return 1;
+}
+
+=head3 cronjob_nightly
+
+Runs on Koha's nightly plugins cron. Sends a batch covering everything
+closed since the previous scheduled day (inclusive) up to yesterday
+(today is excluded because the cron runs in the early hours and
+invoices closed later today would otherwise be missed by both this run
+and the next).
+
+=cut
+
+sub cronjob_nightly {
+    my ($self) = @_;
+    my $logger = Koha::Logger->get( { category => 'Koha.Plugin.Com.OpenFifth.Telford' } );
+
+    $logger->info("Telford nightly cronjob started");
+
+    my $transport_days = $self->retrieve_data('transport_days');
+    unless ($transport_days) {
+        $logger->info("Telford nightly cronjob: no transport days configured, skipping");
+        return;
+    }
+
+    my @selected_days = sort { $a <=> $b } split( /,/, $transport_days );
+    my %selected_days = map { $_ => 1 } @selected_days;
+
+    my $today = dt_from_string()->day_of_week % 7;
+    unless ( $selected_days{$today} ) {
+        $logger->info("Telford nightly cronjob: today (day $today) is not a scheduled day, skipping");
+        return;
+    }
+
+    my $prev_in_week = max( grep { $_ < $today } @selected_days );
+    my $days_since_prev =
+        defined($prev_in_week)
+        ? $today - $prev_in_week
+        : ( ( $today - $selected_days[-1] ) % 7 || 7 );
+
+    my $today_dt   = dt_from_string()->truncate( to => 'day' );
+    my $from       = $today_dt->clone->subtract( days => $days_since_prev )->ymd;
+    my $to         = $today_dt->clone->subtract( days => 1 )->ymd;
+
+    $logger->info("Telford nightly cronjob: generating batch for $from to $to");
+
+    my $batch = $self->generate_batch( { from => $from, to => $to } );
+
+    unless ( $batch->{num_trans} ) {
+        $logger->info("Telford nightly cronjob: nothing to export for $from to $to");
+        $self->_add_run_log( { status => 'no_data', message => "[$from to $to] Nothing to export" } );
+        return;
+    }
+
+    my $filename = $self->_generate_filename( $batch->{batch_id} );
+    my $result   = $self->_deliver_batch( $batch, $filename );
+
+    if ( $result->{success} ) {
+        $self->mark_invoices_submitted( $batch->{invoice_ids}, $filename, 'cron' );
+        $logger->info("Telford nightly cronjob: delivered $filename ($batch->{num_trans} lines)");
+        $self->_add_run_log(
+            {
+                status         => 'success',
+                invoices_found => scalar @{ $batch->{invoice_ids} },
+                filename       => $filename,
+                message        => "[$from to $to] Delivered $filename",
+            }
+        );
+    }
+    else {
+        $logger->error("Telford nightly cronjob: delivery failed for $filename: $result->{error}");
+        $self->_add_run_log(
+            {
+                status         => 'error',
+                invoices_found => scalar @{ $batch->{invoice_ids} },
+                filename       => $filename,
+                message        => "[$from to $to] Delivery failed: $result->{error}",
+            }
+        );
+    }
+
+    return $result->{success};
+}
+
+=head3 report
+
+Staff Tools > Reports entry point: a two-step manual run (pick a date
+range, then either preview it or download/deliver it). Running step 2
+generates a real batch (consumes a batch id, marks its invoices
+submitted) - there's no separate no-op "preview" mode, since previewing
+a batch and sending it are the same generation step for this format.
+
+=cut
+
+sub report {
+    my ( $self, $args ) = @_;
+    my $cgi = $self->{cgi};
+
+    if ( ( $cgi->param('page') // '' ) eq 'manage_submissions' ) {
+        $self->manage_submissions();
+    }
+    elsif ( $cgi->param('from') ) {
+        $self->report_step2();
+    }
+    else {
+        $self->report_step1();
+    }
+}
+
+sub report_step1 {
+    my ($self) = @_;
+    my $template = $self->get_template( { file => 'report-step1.tt' } );
+    $self->output_html( $template->output() );
+}
+
+sub report_step2 {
+    my ($self) = @_;
+    my $cgi  = $self->{cgi};
+    my $from = $cgi->param('from');
+    my $to   = $cgi->param('to');
+
+    my $batch = $self->generate_batch( { from => $from, to => $to } );
+
+    if ( $batch->{num_trans} ) {
+        my $filename = $self->_generate_filename( $batch->{batch_id} );
+        my $result   = $self->_deliver_batch( $batch, $filename );
+
+        if ( $result->{success} ) {
+            $self->mark_invoices_submitted( $batch->{invoice_ids}, $filename, 'manual' );
+            $self->_add_run_log(
+                {
+                    status         => 'success',
+                    invoices_found => scalar @{ $batch->{invoice_ids} },
+                    filename       => $filename,
+                    message        => "[$from to $to] (manual) Delivered $filename",
+                }
+            );
+            $batch->{filename} = $filename;
+            $batch->{delivered} = 1;
+        }
+        else {
+            $self->_add_run_log(
+                {
+                    status         => 'error',
+                    invoices_found => scalar @{ $batch->{invoice_ids} },
+                    filename       => $filename,
+                    message        => "[$from to $to] (manual) Delivery failed: $result->{error}",
+                }
+            );
+            $batch->{error} = $result->{error};
+        }
+    }
+
+    my $template = $self->get_template( { file => 'report-step2.tt' } );
+    $template->param(
+        from  => $from,
+        to    => $to,
+        batch => $batch,
+    );
+    $self->output_html( $template->output() );
+}
+
+=head3 tool
+
+Staff Tools entry point: shows recent run history and lets staff clear
+a submitted invoice so it's picked up again on the next run (e.g. after
+fixing bad data and needing to resend).
+
+=cut
+
+sub tool {
+    my ($self) = @_;
+    $self->manage_submissions();
+}
+
+sub manage_submissions {
+    my ($self) = @_;
+    my $cgi = $self->{cgi};
+    my $dbh = C4::Context->dbh;
+
+    if ( ( $cgi->param('action') // '' ) eq 'clear' ) {
+        my @to_clear = $cgi->multi_param('invoiceid');
+        if (@to_clear) {
+            my $placeholders = join( ',', ('?') x @to_clear );
+            $dbh->do( "DELETE FROM plugin_telford_submitted_invoices WHERE invoiceid IN ($placeholders)", undef, @to_clear );
+        }
+    }
+
+    my $submitted = $dbh->selectall_arrayref(
+        q{
+        SELECT s.invoiceid, i.invoicenumber, s.submitted_at, s.submitted_by, s.filename
+        FROM plugin_telford_submitted_invoices s
+        LEFT JOIN aqinvoices i ON i.invoiceid = s.invoiceid
+        ORDER BY s.submitted_at DESC
+    }, { Slice => {} }
+    );
+
+    my $runs = $dbh->selectall_arrayref(
+        q{
+        SELECT run_at, status, invoices_found, filename, message
+        FROM plugin_telford_cron_runs
+        ORDER BY run_at DESC
+        LIMIT 30
+    }, { Slice => {} }
+    );
+
+    my $template = $self->get_template( { file => 'manage-submissions.tt' } );
+    $template->param(
+        submitted_invoices => $submitted,
+        runs               => $runs,
+        CLASS              => ref($self),
+    );
+    $self->output_html( $template->output() );
+}
+
+=head3 _deliver_batch
+
+Writes the batch text to the configured SFTP/FTP transport, or to a
+local C<output/> directory inside the plugin's own bundle path if no
+transport is configured. Returns C<{ success => 1 }> or
+C<{ success => 0, error => $message }>.
+
+=cut
+
+sub _deliver_batch {
+    my ( $self, $batch, $filename ) = @_;
+
+    my $output = $self->retrieve_data('output') || 'file';
+
+    if ( $output eq 'upload' ) {
+        my $transport = Koha::File::Transports->find( $self->retrieve_data('transport_server') );
+        return { success => 0, error => 'No transport server configured' } unless $transport;
+
+        eval { $transport->connect };
+        return { success => 0, error => "Connection failed: $@" } if $@;
+
+        open my $fh, '<', \$batch->{text} or return { success => 0, error => "Unable to open in-memory handle: $!" };
+        my $ok = $transport->upload_file( $fh, $filename );
+        close $fh;
+
+        return $ok ? { success => 1 } : { success => 0, error => 'Upload failed' };
+    }
+    else {
+        my $dir = File::Spec->catdir( $self->bundle_path, 'output' );
+        eval { make_path($dir) };
+        return { success => 0, error => "Unable to create $dir: $@" } if $@;
+
+        my $path = File::Spec->catfile( $dir, $filename );
+        open my $fh, '>', $path or return { success => 0, error => "Unable to open $path: $!" };
+        print $fh $batch->{text};
+        close $fh;
+
+        return { success => 1, path => $path };
+    }
+}
+
+sub _generate_filename {
+    my ( $self, $batch_id ) = @_;
+    return "TELFORD_" . ( $batch_id // '' ) . "_" . dt_from_string()->strftime('%Y%m%d%H%M%S') . ".txt";
+}
+
+sub _add_run_log {
+    my ( $self, $args ) = @_;
+    my $dbh = C4::Context->dbh;
+    $dbh->do(
+        q{INSERT INTO plugin_telford_cron_runs (run_at, status, invoices_found, filename, message) VALUES (NOW(), ?, ?, ?, ?)},
+        undef,
+        $args->{status}         // 'success',
+        $args->{invoices_found} // 0,
+        $args->{filename},
+        $args->{message},
+    );
 }
 
 sub _yyyymmdd {
