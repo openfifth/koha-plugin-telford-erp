@@ -49,28 +49,7 @@
                         </table>
                     </fieldset>
 
-                    <fieldset class="rows">
-                        <legend>Vendor &rsaquo; ERP creditor (apar_id) mapping</legend>
-                        <p>The ERP's 6-digit creditor number for each vendor. This cannot be read from Koha's own vendor "account number" field, since it is not populated for Telford.</p>
-                        <table>
-                            <thead>
-                                <tr>
-                                    <th>Vendor</th>
-                                    <th>ERP creditor number (apar_id)</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                [% FOREACH vendor IN vendors %]
-                                <tr>
-                                    <td>[% vendor.name | html %]</td>
-                                    <td>
-                                        <input type="text" size="6" maxlength="6" name="vendor_apar_[% vendor.id | html %]" value="[% vendor_mappings.item(vendor.id) | html %]" />
-                                    </td>
-                                </tr>
-                                [% END %]
-                            </tbody>
-                        </table>
-                    </fieldset>
+                    <p>The ERP creditor number and voucher date on each exported line come straight from the vendor's "Account number" and the invoice's "Billing date" fields in Koha - there's nothing to configure here for those. See <code>docs/DATA_REQUIREMENTS.md</code> if invoices are being skipped from the export.</p>
 
                     <fieldset class="action">
                         <input type="submit" value="Save configuration" />

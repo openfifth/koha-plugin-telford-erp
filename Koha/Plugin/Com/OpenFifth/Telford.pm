@@ -111,11 +111,15 @@ sub uninstall {
 
 =head3 configure
 
-Staff UI for mapping Koha funds to the interface's 4-value C<subcc> code,
-and Koha vendors to the ERP's 6-digit C<apar_id> creditor number. Neither
-of these can be derived from data Koha already holds for us (funds have no
-built-in "material category" field, and C<aqbooksellers.accountnumber> is
-not populated in Telford's live data), so both are plugin-level config.
+Staff UI for mapping Koha funds to the interface's 4-value C<subcc> code.
+This can't be derived from data Koha already holds (funds have no
+built-in "material category" field), so it's plugin-level config.
+
+C<apar_id> and C<voucher_date> are deliberately NOT configured here - they
+come straight from C<aqbooksellers.accountnumber> and
+C<aqinvoices.billingdate>, which Koha already has a native field for. See
+L<docs/DATA_REQUIREMENTS.md> for what Telford needs to keep populated in
+Koha itself for those to work.
 
 =cut
 
@@ -135,38 +139,24 @@ sub configure {
             map  { { budget_code => $_->budget_code, budget_name => $_->budget_name } }
             Koha::Acquisition::Funds->search( {}, { order_by => 'budget_code' } )->as_list;
 
-        my @vendors = Koha::Acquisition::Booksellers->search( {}, { order_by => 'name' } )->as_list;
-
         $template->param(
-            funds           => \@funds,
-            vendors         => \@vendors,
-            fund_mappings   => $self->_fund_subcc_mappings,
-            vendor_mappings => $self->_vendor_apar_mappings,
-            subcc_codes     => \@Koha::Plugin::Com::OpenFifth::Telford::Format::SUBCC_CODES,
+            funds         => \@funds,
+            fund_mappings => $self->_fund_subcc_mappings,
+            subcc_codes   => \@Koha::Plugin::Com::OpenFifth::Telford::Format::SUBCC_CODES,
         );
 
         $self->output_html( $template->output() );
     }
     else {
         my %fund_mappings;
-        my %vendor_mappings;
         for my $param_name ( $cgi->param() ) {
             if ( $param_name =~ /^fund_subcc_(.+)$/ ) {
                 my $value = $cgi->param($param_name);
                 $fund_mappings{$1} = $value if $value && $value =~ /\S/;
             }
-            elsif ( $param_name =~ /^vendor_apar_(\d+)$/ ) {
-                my $value = $cgi->param($param_name);
-                $vendor_mappings{$1} = $value if $value && $value =~ /\S/;
-            }
         }
 
-        $self->store_data(
-            {
-                fund_subcc_mappings  => encode_json( \%fund_mappings ),
-                vendor_apar_mappings => encode_json( \%vendor_mappings ),
-            }
-        );
+        $self->store_data( { fund_subcc_mappings => encode_json( \%fund_mappings ) } );
         $self->go_home();
     }
 }
@@ -177,22 +167,10 @@ sub _fund_subcc_mappings {
     return eval { decode_json($data) } || {};
 }
 
-sub _vendor_apar_mappings {
-    my ($self) = @_;
-    my $data = $self->retrieve_data('vendor_apar_mappings') || '{}';
-    return eval { decode_json($data) } || {};
-}
-
 sub _map_fund_to_subcc {
     my ( $self, $budget_code ) = @_;
     return 'UNMAPPED' unless defined $budget_code;
     return $self->_fund_subcc_mappings->{$budget_code} // 'UNMAPPED';
-}
-
-sub _map_vendor_to_apar_id {
-    my ( $self, $bookseller_id ) = @_;
-    return 'UNMAPPED' unless defined $bookseller_id;
-    return $self->_vendor_apar_mappings->{$bookseller_id} // 'UNMAPPED';
 }
 
 =head3 _next_batch_id
@@ -233,18 +211,19 @@ with a C<closedate> in the given (inclusive) range. Returns a hashref:
         total_credits => 500,                # pence
     }
 
-Two things this cannot yet resolve safely and currently default with a
-flag rather than guess silently - see docs/FINDINGS_AND_PLAN.md:
+Every exported invoice needs two things that Koha has native fields for
+but that are not reliably populated in Telford's data yet (see
+L<docs/DATA_REQUIREMENTS.md>): the vendor's C<accountnumber> (apar_id)
+and the invoice's C<billingdate> (voucher_date). Rather than guess at a
+fallback or maintain a shadow mapping for either, an invoice missing
+either one is skipped entirely (logged as a warning) and left
+unsubmitted, so it picks itself up automatically once the missing Koha
+data is filled in.
 
-=over 4
-
-=item * C<voucher_date> falls back to C<shipmentdate> then C<closedate>
-when C<billingdate> (the supplier's invoice date) is not recorded.
-
-=item * Invoice adjustment lines (credit notes/postage with no order line)
-have no tax rate recorded in Koha, so C<tax_code> defaults to '04'.
-
-=back
+One further thing this cannot yet resolve safely and currently defaults
+with a flag rather than guess silently - see docs/FINDINGS_AND_PLAN.md:
+invoice adjustment lines (credit notes/postage with no order line) have
+no tax rate recorded in Koha, so C<tax_code> defaults to '04'.
 
 =cut
 
@@ -272,16 +251,23 @@ sub generate_batch {
     my @invoice_ids;
 
     for my $invoice (@invoices) {
-        push @invoice_ids, $invoice->invoiceid;
-
-        my $voucher_date = $invoice->billingdate || $invoice->shipmentdate || $invoice->closedate;
-        unless ( $invoice->billingdate ) {
-            $logger->warn( "Invoice " . $invoice->invoicenumber . " has no billingdate; falling back to "
-                    . ( $invoice->shipmentdate ? "shipmentdate" : "closedate" )
-                    . " for voucher_date" );
+        my $voucher_date = $invoice->billingdate;
+        unless ($voucher_date) {
+            $logger->warn( "Invoice " . $invoice->invoicenumber
+                    . " has no billingdate recorded in Koha; skipping until it is set on the invoice" );
+            next;
         }
 
-        my $apar_id = $self->_map_vendor_to_apar_id( $invoice->booksellerid );
+        my $vendor = Koha::Acquisition::Booksellers->find( $invoice->booksellerid );
+        my $apar_id = $vendor ? $vendor->accountnumber : undef;
+        unless ($apar_id) {
+            $logger->warn( "Invoice " . $invoice->invoicenumber . " vendor '"
+                    . ( $vendor ? $vendor->name : $invoice->booksellerid )
+                    . "' has no account number configured in Koha; skipping until it is set on the vendor" );
+            next;
+        }
+
+        push @invoice_ids, $invoice->invoiceid;
 
         for my $order ( $invoice->orders->as_list ) {
             next unless defined $order->unitprice_tax_excluded;

@@ -15,11 +15,14 @@ along with the comparison links — do not edit the heading or the links by hand
 ### Added
 
 - Fixed-width record writer (`Telford::Format`) for the batch header and line detail records, unit-tested against `docs/example.tsv`
-- Fund → `subcc` and vendor → `apar_id` mapping UI (`configure()`)
+- Fund → `subcc` mapping UI (`configure()`)
 - `generate_batch()`: builds a batch from closed, not-yet-submitted invoices (order lines + invoice adjustments), with a persistent K001–K999 batch id sequence
 - `install`/`upgrade`/`uninstall`: submitted-invoices, cron-run-log and batch-sequence tables
+- `docs/DATA_REQUIREMENTS.md`: documents that `apar_id`/`voucher_date` depend on Koha's own vendor "Account number" and invoice "Billing date" fields being populated
 
 ### Changed
+
+- `apar_id` and `voucher_date` are read directly from `aqbooksellers.accountnumber` and `aqinvoices.billingdate` rather than a plugin-level vendor mapping/date fallback; an invoice missing either is skipped (and left unsubmitted) rather than exported with guessed data
 
 ### Fixed
 
