@@ -20,7 +20,7 @@ use Mojo::JSON qw(encode_json decode_json);
 
 use Koha::Plugin::Com::OpenFifth::Telford::Format;
 
-our $VERSION         = '0.1.1';
+our $VERSION         = '0.1.2';
 our $MINIMUM_VERSION = "24.11.00.000";
 
 our $metadata = {
@@ -28,7 +28,7 @@ our $metadata = {
     author          => 'Open Fifth',
     description     => "A plugin to manage finance integration for Telford with their ERP (PL) finance system",
     date_authored   => '2026-08-21',
-    date_updated    => '2026-09-17',
+    date_updated    => '2026-09-18',
     minimum_version => $MINIMUM_VERSION,
     maximum_version => undef,
     version         => $VERSION,
