@@ -3,8 +3,8 @@
     "module": "Koha::Plugin::Com::OpenFifth::Telford",
     "pm_path": "Koha/Plugin/Com/OpenFifth/Telford.pm"
   },
-  "version": "0.1.4",
-  "previous_version": "0.1.3",
+  "version": "0.1.5",
+  "previous_version": "0.1.4",
   "scripts": {
     "version:patch": "node increment_version.js patch | cat",
     "version:minor": "node increment_version.js minor | cat",
