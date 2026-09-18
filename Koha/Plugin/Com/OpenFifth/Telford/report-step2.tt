@@ -26,7 +26,7 @@
         </div>
         <!-- /.page-section -->
     [% ELSE %]
-        <div class="alert alert-info">No closed, not-yet-submitted invoices found in this range (or every candidate invoice is missing a billing date or vendor account number - see <code>docs/DATA_REQUIREMENTS.md</code>).</div>
+        <div class="alert alert-info">No closed, not-yet-submitted invoices found in this range - or every candidate invoice is missing its <strong>Billing date</strong> or its vendor's <strong>Account number</strong> in Koha, both of which are required before it can be exported.</div>
     [% END %]
 
     <p><a href="/cgi-bin/koha/plugins/run.pl?class=[% CLASS | uri %]&amp;method=report">Run another report</a></p>

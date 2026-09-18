@@ -4,7 +4,7 @@
 
     <div class="alert alert-info">
         <h3>How the export is built</h3>
-        <p>Each run produces one 120-character fixed-width header record, followed by one line record per invoice order line or adjustment (full field-by-field layout in <code>docs/spec.md</code>). Every field on a line record comes from one of: a fixed value the spec requires, an order/invoice's own Koha data, or the fund mapping below.</p>
+        <p>Each run produces one 120-character fixed-width header record, followed by one line record per invoice order line or adjustment. Every field on a line record comes from one of: a fixed value the ERP interface requires, an order/invoice's own Koha data, or the fund mapping below.</p>
         <table>
             <thead>
                 <tr>
@@ -27,10 +27,10 @@
                 <tr><td><code>apar_id</code></td><td>Vendor &rsaquo; <strong>Account number</strong> field (<code>aqbooksellers.accountnumber</code>)</td></tr>
             </tbody>
         </table>
-        <p>An invoice missing a billing date or its vendor's account number is skipped from the export entirely (and left unsubmitted, so it's picked up automatically once fixed) - see <code>docs/DATA_REQUIREMENTS.md</code>.</p>
+        <p>An invoice missing a billing date or its vendor's account number is skipped from the export entirely - set the invoice's <strong>Billing date</strong> or the vendor's <strong>Account number</strong> in Koha to include it. Skipped invoices stay unsubmitted, so they're picked up automatically on the next run once fixed.</p>
 
         <h4>Example output</h4>
-        <p>A header record followed by one line record, both fixed-width at 120 characters (from <code>docs/example.tsv</code>):</p>
+        <p>A header record followed by one line record, both fixed-width at 120 characters:</p>
 <pre>K001   10           145406                020260804
 K001R4016LLAALBPBZ9904      6679                 1012026080120260731  7292520514303</pre>
     </div>

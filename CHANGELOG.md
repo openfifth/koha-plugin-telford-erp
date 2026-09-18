@@ -14,7 +14,11 @@ along with the comparison links — do not edit the heading or the links by hand
 
 ### Added
 
-- `configure.tt`: an info box explaining how the export is built - a table of which Koha field/area populates each export field (fixed values, order/adjustment data, the `apar_id`/`voucher_date` Koha fields, and the fund mapping below it), plus a static example header + line record from `docs/example.tsv`
+- `configure.tt`: an info box explaining how the export is built - a table of which Koha field/area populates each export field (fixed values, order/adjustment data, the `apar_id`/`voucher_date` Koha fields, and the fund mapping below it), plus a static example header + line record
+
+### Fixed
+
+- `configure.tt`/`report-step2.tt`: replaced references to repo-only files (`docs/spec.md`, `docs/DATA_REQUIREMENTS.md`, `docs/example.tsv`) in staff-facing messages with the relevant detail inline, since plugin users don't have access to the plugin's source
 
 ## [0.1.3] - 2026-09-18
 
