@@ -18,7 +18,7 @@
             </ol>
         </fieldset>
         <fieldset class="action">
-            <input type="submit" value="Generate and send"/>
+            <input type="submit" class="btn btn-primary" value="Generate and send"/>
         </fieldset>
     </form>
     <p><a href="/cgi-bin/koha/plugins/run.pl?class=[% CLASS | uri %]&amp;method=tool">Manage submitted invoices &amp; run history</a></p>

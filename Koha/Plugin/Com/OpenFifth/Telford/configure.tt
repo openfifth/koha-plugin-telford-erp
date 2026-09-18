@@ -6,9 +6,9 @@
         <input type="hidden" name="method" value="[% METHOD %]"/>
         <input type="hidden" name="save" value="1" />
 
-        <fieldset class="rows">
-            <legend>Fund &rsaquo; sub cost centre mapping</legend>
-            <p>Map each Koha fund to one of the four <code>subcc</code> codes the ERP interface accepts. Funds left unmapped will export as <code>UNMAPPED</code> and need fixing before the file is sent on.</p>
+        <h2>Fund &rsaquo; sub cost centre mapping</h2>
+        <p>Map each Koha fund to one of the four <code>subcc</code> codes the ERP interface accepts. Funds left unmapped will export as <code>UNMAPPED</code> and need fixing before the file is sent on.</p>
+        <div class="page-section">
             <table>
                 <thead>
                     <tr>
@@ -34,7 +34,8 @@
                     [% END %]
                 </tbody>
             </table>
-        </fieldset>
+        </div>
+        <!-- /.page-section -->
 
         <p>The ERP creditor number and voucher date on each exported line come straight from the vendor's "Account number" and the invoice's "Billing date" fields in Koha - there's nothing to configure here for those. See <code>docs/DATA_REQUIREMENTS.md</code> if invoices are being skipped from the export.</p>
 
@@ -79,7 +80,7 @@
         </fieldset>
 
         <fieldset class="action">
-            <input type="submit" value="Save configuration" />
+            <input type="submit" class="btn btn-primary" value="Save configuration" />
             <a class="cancel" href="/cgi-bin/koha/plugins/plugins-home.pl">Cancel</a>
         </fieldset>
     </form>

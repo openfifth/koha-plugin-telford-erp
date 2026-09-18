@@ -14,6 +14,12 @@ along with the comparison links — do not edit the heading or the links by hand
 
 ### Fixed
 
+- `configure.tt`/`report-step1.tt`/`report-step2.tt`/`manage-submissions.tt`: wrapped tables in `page-section` divs and gave action buttons the `btn btn-primary`/`cancel` classes core now expects, and swapped the legacy `dialog message`/`dialog alert` classes for `alert alert-info`/`alert alert-danger`, matching current core tool/report page markup
+
+## [0.1.2] - 2026-09-18
+
+### Fixed
+
 - `configure.tt`/`report-step1.tt`/`report-step2.tt`/`manage-submissions.tt`: adopted core's `wrapper-staff-tool-plugin.inc` instead of hand-rolled header/breadcrumbs/Bootstrap-3 grid markup, which had gone stale against 25.11's Bootstrap 5 staff templates and rendered with broken styling
 
 ## [0.1.1] - 2026-09-17
@@ -41,6 +47,7 @@ along with the comparison links — do not edit the heading or the links by hand
 
 - Template files moved out of a `templates/` subdirectory to sit flat next to the module - `Koha::Plugins::Base::get_template` (via `Module::Bundled::Files`) only ever looks in the module's own directory, so nothing under `templates/` was ever actually reachable, in this plugin or in the original scaffold it came from
 
-[Unreleased]: https://github.com/openfifth/koha-plugin-telford-erp/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/openfifth/koha-plugin-telford-erp/compare/v0.1.2...HEAD
+[0.1.2]: https://github.com/openfifth/koha-plugin-telford-erp/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/openfifth/koha-plugin-telford-erp/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/openfifth/koha-plugin-telford-erp/compare/v0.0.0...v0.1.0
