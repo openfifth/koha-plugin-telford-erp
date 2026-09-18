@@ -1,47 +1,27 @@
 [% USE KohaDates %]
-[% INCLUDE 'doc-head-open.inc' %]
-<title>Telford ERP Integration &rsaquo; Report result</title>
-[% INCLUDE 'doc-head-close.inc' %]
-</head>
-<body>
-[% INCLUDE 'header.inc' %]
-[% INCLUDE 'cat-search.inc' %]
+[% WRAPPER 'wrapper-staff-tool-plugin.inc' method="report" plugin_title="Telford ERP Integration" %]
+    <h1>Telford ERP export: [% from %] to [% to %]</h1>
 
-<div id="breadcrumbs"><a href="/cgi-bin/koha/mainpage.pl">Home</a> &rsaquo; <a href="/cgi-bin/koha/plugins/plugins-home.pl">Plugins</a> &rsaquo; Telford ERP Integration &rsaquo; Report result</div>
+    [% IF batch.num_trans %]
+        [% IF batch.delivered %]
+            <div class="dialog message">Delivered <strong>[% batch.filename %]</strong> and marked [% batch.invoice_ids.size %] invoice(s) as submitted.</div>
+        [% ELSIF batch.error %]
+            <div class="dialog alert">Batch <strong>[% batch.batch_id %]</strong> was generated but delivery failed: [% batch.error | html %]. Invoices were <strong>not</strong> marked as submitted, so this range is safe to re-run once the problem is fixed.</div>
+        [% END %]
 
-<div class="main container-fluid">
-    <div class="row">
-        <div class="col-sm-10 col-sm-push-2">
-            <main>
-                <h1>Telford ERP export: [% from %] to [% to %]</h1>
+        <table>
+            <tr><th>Batch id</th><td>[% batch.batch_id %]</td></tr>
+            <tr><th>Lines</th><td>[% batch.num_trans %]</td></tr>
+            <tr><th>Total debits (pence)</th><td>[% batch.total_debits %]</td></tr>
+            <tr><th>Total credits (pence)</th><td>[% batch.total_credits %]</td></tr>
+            <tr><th>Invoices included</th><td>[% batch.invoice_ids.size %]</td></tr>
+        </table>
 
-                [% IF batch.num_trans %]
-                    [% IF batch.delivered %]
-                        <div class="dialog message">Delivered <strong>[% batch.filename %]</strong> and marked [% batch.invoice_ids.size %] invoice(s) as submitted.</div>
-                    [% ELSIF batch.error %]
-                        <div class="dialog alert">Batch <strong>[% batch.batch_id %]</strong> was generated but delivery failed: [% batch.error | html %]. Invoices were <strong>not</strong> marked as submitted, so this range is safe to re-run once the problem is fixed.</div>
-                    [% END %]
+        <h2>Raw batch text</h2>
+        <textarea rows="15" cols="120" readonly="readonly">[% batch.text %]</textarea>
+    [% ELSE %]
+        <div class="dialog message">No closed, not-yet-submitted invoices found in this range (or every candidate invoice is missing a billing date or vendor account number - see <code>docs/DATA_REQUIREMENTS.md</code>).</div>
+    [% END %]
 
-                    <table>
-                        <tr><th>Batch id</th><td>[% batch.batch_id %]</td></tr>
-                        <tr><th>Lines</th><td>[% batch.num_trans %]</td></tr>
-                        <tr><th>Total debits (pence)</th><td>[% batch.total_debits %]</td></tr>
-                        <tr><th>Total credits (pence)</th><td>[% batch.total_credits %]</td></tr>
-                        <tr><th>Invoices included</th><td>[% batch.invoice_ids.size %]</td></tr>
-                    </table>
-
-                    <h2>Raw batch text</h2>
-                    <textarea rows="15" cols="120" readonly="readonly">[% batch.text %]</textarea>
-                [% ELSE %]
-                    <div class="dialog message">No closed, not-yet-submitted invoices found in this range (or every candidate invoice is missing a billing date or vendor account number - see <code>docs/DATA_REQUIREMENTS.md</code>).</div>
-                [% END %]
-
-                <p><a href="/cgi-bin/koha/plugins/run.pl?class=[% CLASS | uri %]&amp;method=report">Run another report</a></p>
-            </main>
-        </div>
-        <div class="col-sm-2 col-sm-pull-10">
-            [% INCLUDE 'tools-menu.inc' %]
-        </div>
-    </div>
-</div>
-[% INCLUDE 'intranet-bottom.inc' %]
+    <p><a href="/cgi-bin/koha/plugins/run.pl?class=[% CLASS | uri %]&amp;method=report">Run another report</a></p>
+[% END #/ WRAPPER wrapper-staff-tool-plugin.inc %]
