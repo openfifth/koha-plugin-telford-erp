@@ -30,9 +30,12 @@
         <p>An invoice missing a billing date or its vendor's account number is skipped from the export entirely - set the invoice's <strong>Billing date</strong> or the vendor's <strong>Account number</strong> in Koha to include it. Skipped invoices stay unsubmitted, so they're picked up automatically on the next run once fixed.</p>
 
         <h4>Example output</h4>
-        <p>A header record followed by one line record, both fixed-width at 120 characters:</p>
-<pre>K001   10           145406                020260804
-K001R4016LLAALBPBZ9904      6679                 1012026080120260731  7292520514303</pre>
+        <p>A header record followed by one line record, both fixed-width at 120 characters (scroll right to see the trailing padding):</p>
+        <div class="page-section">
+<pre style="margin: 0; overflow-x: auto; white-space: pre; font-family: 'Courier New', Courier, monospace;">K001   10           145406                020260804&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+K001R4016LLAALBPBZ9904      6679                 1012026080120260731  7292520514303&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</pre>
+        </div>
+        <!-- /.page-section -->
     </div>
 
     <form method="post">
