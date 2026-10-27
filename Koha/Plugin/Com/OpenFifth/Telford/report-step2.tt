@@ -2,7 +2,14 @@
 [% WRAPPER 'wrapper-staff-tool-plugin.inc' method="report" plugin_title="Telford ERP Integration" %]
     <h1>Telford ERP export[% UNLESS sent %] preview[% END %]: [% from %] to [% to %]</h1>
 
-    [% IF batch.num_trans %]
+    [% IF batch.errors.size %]
+        <div class="alert alert-danger">
+            <p><strong>The batch could not be built[% IF sent %] and was not sent[% END %].</strong> No batch id was consumed and no invoices were marked as submitted. Fix the following and run it again:</p>
+            <ul>
+                [% FOREACH e IN batch.errors %]<li>[% e | html %]</li>[% END %]
+            </ul>
+        </div>
+    [% ELSIF batch.num_trans %]
         [% UNLESS sent %]
             <div class="alert alert-warning">This is a preview. Nothing has been sent, no batch id has been consumed and no invoices have been marked as submitted. The batch id shown is the one the next real batch will receive.</div>
         [% END %]

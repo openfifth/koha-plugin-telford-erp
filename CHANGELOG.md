@@ -12,9 +12,15 @@ along with the comparison links — do not edit the heading or the links by hand
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-27
+
 ### Added
 
 - Report page now offers **Preview** and **Download preview** alongside **Generate and send**. Previews show/download the exact batch without sending it, consuming a batch id or marking invoices as submitted. A bare `from`/`to` URL now previews rather than sends.
+
+### Fixed
+
+- An order or adjustment whose fund has no subcc mapping (or any value too wide for its field) no longer causes a 500 error or an aborted nightly run. The report page now lists exactly what needs fixing, the batch is not sent, and no batch id is consumed. The nightly cron logs the same message as an error run.
 
 ## [0.1.5] - 2026-09-18
 
@@ -69,7 +75,8 @@ along with the comparison links — do not edit the heading or the links by hand
 
 - Template files moved out of a `templates/` subdirectory to sit flat next to the module - `Koha::Plugins::Base::get_template` (via `Module::Bundled::Files`) only ever looks in the module's own directory, so nothing under `templates/` was ever actually reachable, in this plugin or in the original scaffold it came from
 
-[Unreleased]: https://github.com/openfifth/koha-plugin-telford-erp/compare/v0.1.5...HEAD
+[Unreleased]: https://github.com/openfifth/koha-plugin-telford-erp/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/openfifth/koha-plugin-telford-erp/compare/v0.1.5...v0.2.0
 [0.1.5]: https://github.com/openfifth/koha-plugin-telford-erp/compare/v0.1.4...v0.1.5
 [0.1.4]: https://github.com/openfifth/koha-plugin-telford-erp/compare/v0.1.3...v0.1.4
 [0.1.3]: https://github.com/openfifth/koha-plugin-telford-erp/compare/v0.1.2...v0.1.3

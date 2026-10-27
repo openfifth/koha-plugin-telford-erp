@@ -44,7 +44,7 @@ K001R4016LLAALBPBZ9904      6679                 1012026080120260731  7292520514
         <input type="hidden" name="save" value="1" />
 
         <h2>Fund &rsaquo; sub cost centre mapping</h2>
-        <p>Map each Koha fund to one of the four <code>subcc</code> codes the ERP interface accepts. Funds left unmapped will export as <code>UNMAPPED</code> and need fixing before the file is sent on.</p>
+        <p>Map each Koha fund to one of the four <code>subcc</code> codes the ERP interface accepts. A batch containing an unmapped fund is not sent: the report page lists the missing mappings so they can be added here first.</p>
         <div class="page-section">
             <table>
                 <thead>

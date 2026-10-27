@@ -193,8 +193,9 @@ sub _fund_subcc_mappings {
 
 sub _map_fund_to_subcc {
     my ( $self, $budget_code ) = @_;
-    return 'UNMAPPED' unless defined $budget_code;
-    return $self->_fund_subcc_mappings->{$budget_code} // 'UNMAPPED';
+    return undef unless defined $budget_code;
+    my $subcc = $self->_fund_subcc_mappings->{$budget_code};
+    return ( defined $subcc && length $subcc ) ? $subcc : undef;
 }
 
 =head3 _next_batch_id
@@ -249,6 +250,7 @@ one the next real batch would get). Returns a hashref:
         num_trans    => 3,
         total_debits => 6679,                # pence
         total_credits => 500,                # pence
+        errors        => [],                 # messages; non-empty means do not send
     }
 
 Every exported invoice needs two things that Koha has native fields for
@@ -260,6 +262,10 @@ either one is skipped entirely (logged as a warning) and left
 unsubmitted, so it picks itself up automatically once the missing Koha
 data is filled in.
 
+Lines that cannot be built (a fund with no subcc mapping, a value too wide
+for its field) are reported in C<errors> instead of dying. A batch with
+any errors must not be delivered, and does not consume a batch id.
+
 One further thing this cannot yet resolve safely and currently defaults
 with a flag rather than guess silently - see docs/FINDINGS_AND_PLAN.md:
 invoice adjustment lines (credit notes/postage with no order line) have
@@ -269,11 +275,26 @@ no tax rate recorded in Koha, so C<tax_code> defaults to '04'.
 
 sub generate_batch {
     my ( $self, $args ) = @_;
+
+    # Always build against the peeked id first so a batch that cannot be
+    # built (see C<errors> below) never consumes an id from the global
+    # sequence. Only a real, error-free run advances it.
+    my $peeked = $self->_peek_batch_id;
+    my $batch  = $self->_build_batch( $args, $peeked );
+    return $batch if $args->{preview} || @{ $batch->{errors} };
+
+    my $batch_id = $self->_next_batch_id;
+    $batch = $self->_build_batch( $args, $batch_id ) if $batch_id ne $peeked;    # lost a race for the id
+    return $batch;
+}
+
+sub _build_batch {
+    my ( $self, $args, $batch_id ) = @_;
     my $from = $args->{from};
     my $to   = $args->{to};
 
-    # A preview must not consume a batch id from the global sequence
-    my $preview = $args->{preview};
+    my @errors;
+    my %unmapped;
 
     my $logger = Koha::Logger->get( { category => 'Koha.Plugin.Com.OpenFifth.Telford' } );
 
@@ -286,8 +307,6 @@ sub generate_batch {
         { order_by => 'closedate' }
     )->as_list;
     @invoices = grep { !$already_submitted->{ $_->invoiceid } } @invoices;
-
-    my $batch_id = $preview ? $self->_peek_batch_id : $self->_next_batch_id;
 
     my @lines;
     my ( $total_debits, $total_credits ) = ( 0, 0 );
@@ -322,9 +341,11 @@ sub generate_batch {
             my $net_pounds = $order->unitprice_tax_excluded * ( $order->quantity // 1 );
             my $vat_pounds = $order->tax_value_on_receiving // 0;
 
-            my $subcc = $self->_map_fund_to_subcc( $order->fund ? $order->fund->budget_code : undef );
+            my $ctx   = "Invoice " . $invoice->invoicenumber . " order " . $order->ordernumber;
+            my $subcc = $self->_resolve_subcc( $order->fund, $ctx, \@errors, \%unmapped );
+            next unless defined $subcc;
 
-            push @lines, Koha::Plugin::Com::OpenFifth::Telford::Format::build_line_record(
+            my $record = eval { Koha::Plugin::Com::OpenFifth::Telford::Format::build_line_record(
                 {
                     batch_id     => $batch_id,
                     account      => $Koha::Plugin::Com::OpenFifth::Telford::Format::ACCOUNT,
@@ -340,7 +361,13 @@ sub generate_batch {
                     ext_inv_ref  => $invoice->invoicenumber,
                     apar_id      => $apar_id,
                 }
-            );
+            ) };
+            unless ($record) {
+                ( my $e = $@ ) =~ s/ at \S+ line \d+\.?\s*$//;
+                push @errors, "$ctx: $e";
+                next;
+            }
+            push @lines, $record;
 
             $total_debits  += $net_pounds >= 0 ? int( sprintf( '%.0f', $net_pounds * 100 ) ) : 0;
             $total_credits += $net_pounds < 0  ? int( sprintf( '%.0f', -$net_pounds * 100 ) ) : 0;
@@ -348,9 +375,11 @@ sub generate_batch {
 
         for my $adjustment ( Koha::Acquisition::Invoice::Adjustments->search( { invoiceid => $invoice->invoiceid } )->as_list ) {
             my $net_pounds = $adjustment->adjustment // 0;
-            my $subcc = $self->_map_fund_to_subcc( $adjustment->fund ? $adjustment->fund->budget_code : undef );
+            my $ctx   = "Invoice " . $invoice->invoicenumber . " adjustment " . $adjustment->adjustment_id;
+            my $subcc = $self->_resolve_subcc( $adjustment->fund, $ctx, \@errors, \%unmapped );
+            next unless defined $subcc;
 
-            push @lines, Koha::Plugin::Com::OpenFifth::Telford::Format::build_line_record(
+            my $record = eval { Koha::Plugin::Com::OpenFifth::Telford::Format::build_line_record(
                 {
                     batch_id     => $batch_id,
                     account      => $Koha::Plugin::Com::OpenFifth::Telford::Format::ACCOUNT,
@@ -366,7 +395,13 @@ sub generate_batch {
                     ext_inv_ref  => $invoice->invoicenumber,
                     apar_id      => $apar_id,
                 }
-            );
+            ) };
+            unless ($record) {
+                ( my $e = $@ ) =~ s/ at \S+ line \d+\.?\s*$//;
+                push @errors, "$ctx: $e";
+                next;
+            }
+            push @lines, $record;
 
             $total_debits  += $net_pounds >= 0 ? int( sprintf( '%.0f', $net_pounds * 100 ) ) : 0;
             $total_credits += $net_pounds < 0  ? int( sprintf( '%.0f', -$net_pounds * 100 ) ) : 0;
@@ -390,7 +425,36 @@ sub generate_batch {
         num_trans     => scalar @lines,
         total_debits  => $total_debits,
         total_credits => $total_credits,
+        errors        => \@errors,
     };
+}
+
+# generate_batch, but an unexpected die comes back as an error message
+# rather than propagating (a 500 in the UI, an aborted cron).
+sub _try_generate_batch {
+    my ( $self, $args ) = @_;
+    my $batch = eval { $self->generate_batch($args) };
+    return $batch if $batch;
+
+    ( my $e = $@ ) =~ s/ at \S+ line \d+\.?\s*$//;
+    return { num_trans => 0, invoice_ids => [], errors => ["Unexpected error: $e"] };
+}
+
+# Resolves an order/adjustment fund to a subcc, recording a readable error
+# (once per fund code) instead of dying when it has no mapping.
+sub _resolve_subcc {
+    my ( $self, $fund, $ctx, $errors, $unmapped ) = @_;
+    my $code  = $fund ? $fund->budget_code : undef;
+    my $subcc = $self->_map_fund_to_subcc($code);
+    return $subcc if defined $subcc;
+
+    if ( !defined $code ) {
+        push @$errors, "$ctx: the fund has no budget code";
+    }
+    elsif ( !$unmapped->{$code}++ ) {
+        push @$errors, "Fund '$code' (first seen on $ctx) has no subcc mapping; add it on the plugin Configure page";
+    }
+    return undef;
 }
 
 sub _get_submitted_invoice_ids {
@@ -457,7 +521,14 @@ sub cronjob_nightly {
 
     $logger->info("Telford nightly cronjob: generating batch for $from to $to");
 
-    my $batch = $self->generate_batch( { from => $from, to => $to } );
+    my $batch = $self->_try_generate_batch( { from => $from, to => $to } );
+
+    if ( @{ $batch->{errors} } ) {
+        my $msg = "[$from to $to] Not sent: " . join( '; ', @{ $batch->{errors} } );
+        $logger->error("Telford nightly cronjob: $msg");
+        $self->_add_run_log( { status => 'error', message => $msg } );
+        return;
+    }
 
     unless ( $batch->{num_trans} ) {
         $logger->info("Telford nightly cronjob: nothing to export for $from to $to");
@@ -535,9 +606,9 @@ sub report_step2 {
     # Only an explicit "send" delivers; anything else (including a bare
     # from/to URL) is a harmless preview.
     my $send  = ( $cgi->param('action') // '' ) eq 'send';
-    my $batch = $self->generate_batch( { from => $from, to => $to, preview => !$send } );
+    my $batch = $self->_try_generate_batch( { from => $from, to => $to, preview => !$send } );
 
-    if ( $send && $batch->{num_trans} ) {
+    if ( $send && $batch->{num_trans} && !@{ $batch->{errors} } ) {
         my $filename = $self->_generate_filename( $batch->{batch_id} );
         my $result   = $self->_deliver_batch( $batch, $filename );
 
@@ -567,6 +638,15 @@ sub report_step2 {
         }
     }
 
+    if ( $send && @{ $batch->{errors} } ) {
+        $self->_add_run_log(
+            {
+                status  => 'error',
+                message => "[$from to $to] (manual) Not sent: " . join( '; ', @{ $batch->{errors} } ),
+            }
+        );
+    }
+
     my $template = $self->get_template( { file => 'report-step2.tt' } );
     $template->param(
         from    => $from,
@@ -588,7 +668,11 @@ id is consumed and no invoices are marked as submitted.
 sub report_download {
     my ($self) = @_;
     my $cgi   = $self->{cgi};
-    my $batch = $self->generate_batch( { from => scalar $cgi->param('from'), to => scalar $cgi->param('to'), preview => 1 } );
+    my $batch = $self->_try_generate_batch( { from => scalar $cgi->param('from'), to => scalar $cgi->param('to'), preview => 1 } );
+
+    if ( @{ $batch->{errors} } ) {
+        return $self->report_step2;    # renders the preview page with the error list
+    }
 
     ( my $filename = $self->_generate_filename( $batch->{batch_id} ) ) =~ s/^TELFORD_/TELFORD_PREVIEW_/;
 

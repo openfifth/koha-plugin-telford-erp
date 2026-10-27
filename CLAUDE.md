@@ -32,7 +32,7 @@ Data flow in `generate_batch({from, to})`: closed invoices in the date range, mi
 Non-obvious behaviours worth knowing before changing things:
 
 - **Batch IDs** (`K001`–`K999`, wrapping) come from a single global counter in `plugin_telford_batch_sequence`, incremented under a row lock.
-- **`subcc`** (`LBAB`/`LBPB`/`LBPP`/`LBRO`) is resolved from `aqbudgets.budget_code` via the fund mapping in plugin config; unmapped funds are emitted as `UNMAPPED` on purpose so staff can see and fix them.
+- **`subcc`** (`LBAB`/`LBPB`/`LBPP`/`LBRO`) is resolved from `aqbudgets.budget_code` via the fund mapping in plugin config; an unmapped fund (or any value too wide for its field) is collected into `errors` on the batch rather than dying; the report page lists them and nothing is sent or numbered, and the nightly cron logs an error run.
 - **`apar_id` / `voucher_date`** come straight from `aqbooksellers.accountnumber` and `aqinvoices.billingdate`. Invoices missing either are **skipped with a warning** (left unsubmitted), never defaulted. See `docs/DATA_REQUIREMENTS.md`.
 - **`tax_code`**: `tax_rate_on_receiving == 0.20` → `01`, anything else → `04`. Adjustment lines have no tax rate and default to `04`.
 - **Nightly cron** only sends on configured `transport_days`, and covers the previous scheduled day up to *yesterday* (today is excluded because the cron runs in the early hours).
