@@ -5,6 +5,7 @@
     <h2>Submitted invoices</h2>
     <p>Clearing an invoice here does not undo anything already sent - it just lets that invoice be picked up and sent again on the next run (e.g. after fixing bad data).</p>
     <form method="post">
+        [% INCLUDE 'csrf-token.inc' %]
         <input type="hidden" name="class" value="[% CLASS %]"/>
         <input type="hidden" name="method" value="tool"/>
         <input type="hidden" name="action" value="clear"/>

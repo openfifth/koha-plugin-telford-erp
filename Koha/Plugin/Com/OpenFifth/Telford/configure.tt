@@ -39,6 +39,7 @@ K001R4016LLAALBPBZ9904      6679                 1012026080120260731  7292520514
     </div>
 
     <form method="post">
+        [% INCLUDE 'csrf-token.inc' %]
         <input type="hidden" name="class" value="[% CLASS %]"/>
         <input type="hidden" name="method" value="[% METHOD %]"/>
         <input type="hidden" name="save" value="1" />
