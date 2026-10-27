@@ -1,7 +1,7 @@
 [% USE KohaDates %]
 [% WRAPPER 'wrapper-staff-tool-plugin.inc' method="report" plugin_title="Telford ERP Integration" %]
     <h1>Run Telford ERP export</h1>
-    <p>Generates a real batch for every closed, not-yet-submitted invoice with a closed date in this range (inclusive), and delivers it via the configured transport. This is not a preview - running it consumes a batch id and marks the included invoices as submitted.</p>
+    <p>Builds a batch for every closed, not-yet-submitted invoice with a closed date in this range (inclusive). <strong>Preview</strong> shows the output without sending anything, and the preview can be downloaded as a file; it does not consume a batch id or mark invoices as submitted. <strong>Generate and send</strong> delivers the batch via the configured transport, consumes a batch id and marks the included invoices as submitted.</p>
     <form method="get">
         <input type="hidden" name="class" value="[% CLASS %]"/>
         <input type="hidden" name="method" value="report"/>
@@ -18,7 +18,9 @@
             </ol>
         </fieldset>
         <fieldset class="action">
-            <input type="submit" class="btn btn-primary" value="Generate and send"/>
+            <button type="submit" name="action" value="preview" class="btn btn-default">Preview</button>
+            <button type="submit" name="action" value="download" class="btn btn-default">Download preview</button>
+            <button type="submit" name="action" value="send" class="btn btn-primary">Generate and send</button>
         </fieldset>
     </form>
     <p><a href="/cgi-bin/koha/plugins/run.pl?class=[% CLASS | uri %]&amp;method=tool">Manage submitted invoices &amp; run history</a></p>

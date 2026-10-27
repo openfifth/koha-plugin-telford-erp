@@ -219,12 +219,28 @@ sub _next_batch_id {
     return Koha::Plugin::Com::OpenFifth::Telford::Format::format_batch_id($next);
 }
 
+=head3 _peek_batch_id
+
+Returns the batch id the next real batch would receive, without advancing
+the sequence. Used for previews and downloads so they never burn an id.
+
+=cut
+
+sub _peek_batch_id {
+    my ($self) = @_;
+    my $current = C4::Context->dbh->selectrow_array(q{SELECT last_number FROM plugin_telford_batch_sequence WHERE id = 1});
+    return Koha::Plugin::Com::OpenFifth::Telford::Format::format_batch_id(
+        Koha::Plugin::Com::OpenFifth::Telford::Format::next_batch_number($current) );
+}
+
 =head3 generate_batch
 
     my $batch = $plugin->generate_batch({ from => $date, to => $date });
 
 Builds the fixed-width export for every closed, not-yet-submitted invoice
-with a C<closedate> in the given (inclusive) range. Returns a hashref:
+with a C<closedate> in the given (inclusive) range. Pass C<preview =E<gt> 1>
+to build the same output without consuming a batch id (the id shown is the
+one the next real batch would get). Returns a hashref:
 
     {
         batch_id     => 'K001',
@@ -256,6 +272,9 @@ sub generate_batch {
     my $from = $args->{from};
     my $to   = $args->{to};
 
+    # A preview must not consume a batch id from the global sequence
+    my $preview = $args->{preview};
+
     my $logger = Koha::Logger->get( { category => 'Koha.Plugin.Com.OpenFifth.Telford' } );
 
     my $already_submitted = $self->_get_submitted_invoice_ids;
@@ -268,7 +287,7 @@ sub generate_batch {
     )->as_list;
     @invoices = grep { !$already_submitted->{ $_->invoiceid } } @invoices;
 
-    my $batch_id = $self->_next_batch_id;
+    my $batch_id = $preview ? $self->_peek_batch_id : $self->_next_batch_id;
 
     my @lines;
     my ( $total_debits, $total_credits ) = ( 0, 0 );
@@ -494,7 +513,7 @@ sub report {
         $self->manage_submissions();
     }
     elsif ( $cgi->param('from') ) {
-        $self->report_step2();
+        ( $cgi->param('action') // '' ) eq 'download' ? $self->report_download() : $self->report_step2();
     }
     else {
         $self->report_step1();
@@ -513,9 +532,12 @@ sub report_step2 {
     my $from = $cgi->param('from');
     my $to   = $cgi->param('to');
 
-    my $batch = $self->generate_batch( { from => $from, to => $to } );
+    # Only an explicit "send" delivers; anything else (including a bare
+    # from/to URL) is a harmless preview.
+    my $send  = ( $cgi->param('action') // '' ) eq 'send';
+    my $batch = $self->generate_batch( { from => $from, to => $to, preview => !$send } );
 
-    if ( $batch->{num_trans} ) {
+    if ( $send && $batch->{num_trans} ) {
         my $filename = $self->_generate_filename( $batch->{batch_id} );
         my $result   = $self->_deliver_batch( $batch, $filename );
 
@@ -547,11 +569,36 @@ sub report_step2 {
 
     my $template = $self->get_template( { file => 'report-step2.tt' } );
     $template->param(
-        from  => $from,
-        to    => $to,
-        batch => $batch,
+        from    => $from,
+        to      => $to,
+        batch   => $batch,
+        sent    => $send,
+        CLASS   => ref($self),
     );
     $self->output_html( $template->output() );
+}
+
+=head3 report_download
+
+Streams a preview batch as a file download. Nothing is delivered, no batch
+id is consumed and no invoices are marked as submitted.
+
+=cut
+
+sub report_download {
+    my ($self) = @_;
+    my $cgi   = $self->{cgi};
+    my $batch = $self->generate_batch( { from => scalar $cgi->param('from'), to => scalar $cgi->param('to'), preview => 1 } );
+
+    ( my $filename = $self->_generate_filename( $batch->{batch_id} ) ) =~ s/^TELFORD_/TELFORD_PREVIEW_/;
+
+    print $cgi->header(
+        -type       => 'text/plain',
+        -charset    => 'UTF-8',
+        -attachment => $filename,
+    );
+    print $batch->{text};
+    return;
 }
 
 =head3 tool

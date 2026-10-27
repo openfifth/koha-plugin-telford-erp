@@ -12,6 +12,12 @@ along with the comparison links — do not edit the heading or the links by hand
 
 ## [Unreleased]
 
+### Added
+
+- Report page now offers **Preview** and **Download preview** alongside **Generate and send**. Previews show/download the exact batch without sending it, consuming a batch id or marking invoices as submitted. A bare `from`/`to` URL now previews rather than sends.
+
+## [0.1.5] - 2026-09-18
+
 ### Fixed
 
 - `configure.tt`: the example output block is now a bordered `page-section` card with a fixed monospace font and no line-wrapping, so the fixed-width columns stay aligned instead of wrapping and losing their column positions; trailing padding is preserved with non-breaking spaces so it survives editors/hooks that trim trailing whitespace
@@ -63,7 +69,8 @@ along with the comparison links — do not edit the heading or the links by hand
 
 - Template files moved out of a `templates/` subdirectory to sit flat next to the module - `Koha::Plugins::Base::get_template` (via `Module::Bundled::Files`) only ever looks in the module's own directory, so nothing under `templates/` was ever actually reachable, in this plugin or in the original scaffold it came from
 
-[Unreleased]: https://github.com/openfifth/koha-plugin-telford-erp/compare/v0.1.4...HEAD
+[Unreleased]: https://github.com/openfifth/koha-plugin-telford-erp/compare/v0.1.5...HEAD
+[0.1.5]: https://github.com/openfifth/koha-plugin-telford-erp/compare/v0.1.4...v0.1.5
 [0.1.4]: https://github.com/openfifth/koha-plugin-telford-erp/compare/v0.1.3...v0.1.4
 [0.1.3]: https://github.com/openfifth/koha-plugin-telford-erp/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/openfifth/koha-plugin-telford-erp/compare/v0.1.1...v0.1.2

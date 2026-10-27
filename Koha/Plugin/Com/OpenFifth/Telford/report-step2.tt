@@ -1,8 +1,11 @@
 [% USE KohaDates %]
 [% WRAPPER 'wrapper-staff-tool-plugin.inc' method="report" plugin_title="Telford ERP Integration" %]
-    <h1>Telford ERP export: [% from %] to [% to %]</h1>
+    <h1>Telford ERP export[% UNLESS sent %] preview[% END %]: [% from %] to [% to %]</h1>
 
     [% IF batch.num_trans %]
+        [% UNLESS sent %]
+            <div class="alert alert-warning">This is a preview. Nothing has been sent, no batch id has been consumed and no invoices have been marked as submitted. The batch id shown is the one the next real batch will receive.</div>
+        [% END %]
         [% IF batch.delivered %]
             <div class="alert alert-info">Delivered <strong>[% batch.filename %]</strong> and marked [% batch.invoice_ids.size %] invoice(s) as submitted.</div>
         [% ELSIF batch.error %]
@@ -19,6 +22,13 @@
             </table>
         </div>
         <!-- /.page-section -->
+
+        [% UNLESS sent %]
+            <p>
+                <a class="btn btn-default" href="/cgi-bin/koha/plugins/run.pl?class=[% CLASS | uri %]&amp;method=report&amp;action=download&amp;from=[% from | uri %]&amp;to=[% to | uri %]">Download preview</a>
+                <a class="btn btn-primary" href="/cgi-bin/koha/plugins/run.pl?class=[% CLASS | uri %]&amp;method=report&amp;action=send&amp;from=[% from | uri %]&amp;to=[% to | uri %]" onclick="return confirm('Send this batch to Telford and mark the invoices as submitted?');">Generate and send</a>
+            </p>
+        [% END %]
 
         <h2>Raw batch text</h2>
         <div class="page-section">
