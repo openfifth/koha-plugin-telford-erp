@@ -353,6 +353,13 @@ sub _build_batch {
 
             my $ctx   = "Invoice " . $invoice->invoicenumber . " order " . $order->ordernumber;
             my $subcc = $self->_resolve_subcc( $order->fund, $ctx, \@errors, \%unmapped );
+
+            # Telford only accepts tax codes 01/04, so an order with no tax
+            # rate recorded can't be exported (Format would emit its 'ZZ' flag)
+            unless ( defined $order->tax_rate_on_receiving ) {
+                push @errors, "$ctx: no tax rate recorded on receiving, so a tax code can't be determined";
+                next;
+            }
             next unless defined $subcc;
 
             my $record = eval { Koha::Plugin::Com::OpenFifth::Telford::Format::build_line_record(
