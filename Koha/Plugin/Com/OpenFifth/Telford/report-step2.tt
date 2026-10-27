@@ -13,6 +13,9 @@
         [% UNLESS sent %]
             <div class="alert alert-warning">This is a preview. Nothing has been sent, no batch id has been consumed and no invoices have been marked as submitted. The batch id shown is the one the next real batch will receive.</div>
         [% END %]
+        [% IF batch.record_error %]
+            <div class="alert alert-danger"><strong>Important:</strong> [% batch.filename %] was delivered, but Koha could not record the invoices as submitted: [% batch.record_error | html %]. They will be sent again on the next run unless you resolve this. Do not re-run this range until it is fixed.</div>
+        [% END %]
         [% IF batch.delivered %]
             <div class="alert alert-info">Delivered <strong>[% batch.filename %]</strong> and marked [% batch.invoice_ids.size %] invoice(s) as submitted.</div>
         [% ELSIF batch.error %]

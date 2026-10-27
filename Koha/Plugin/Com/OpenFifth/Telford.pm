@@ -209,13 +209,23 @@ sub _next_batch_id {
     my ($self) = @_;
     my $dbh = C4::Context->dbh;
 
-    $dbh->{AutoCommit} = 0;
-    my $current =
-        $dbh->selectrow_array(q{SELECT last_number FROM plugin_telford_batch_sequence WHERE id = 1 FOR UPDATE});
-    my $next = Koha::Plugin::Com::OpenFifth::Telford::Format::next_batch_number($current);
-    $dbh->do( q{UPDATE plugin_telford_batch_sequence SET last_number = ? WHERE id = 1}, undef, $next );
-    $dbh->commit;
+    # Whatever happens, hand the shared handle back in autocommit mode:
+    # leaving it off would silently stop later writes (marking invoices
+    # submitted, the run log) from ever being committed.
+    my $next = eval {
+        $dbh->{AutoCommit} = 0;
+        $dbh->do(q{INSERT IGNORE INTO plugin_telford_batch_sequence (id, last_number) VALUES (1, 0)});
+        my $current =
+            $dbh->selectrow_array(q{SELECT last_number FROM plugin_telford_batch_sequence WHERE id = 1 FOR UPDATE});
+        my $n = Koha::Plugin::Com::OpenFifth::Telford::Format::next_batch_number($current);
+        $dbh->do( q{UPDATE plugin_telford_batch_sequence SET last_number = ? WHERE id = 1}, undef, $n );
+        $dbh->commit;
+        $n;
+    };
+    my $err = $@;
+    $dbh->rollback unless defined $next;
     $dbh->{AutoCommit} = 1;
+    die "Unable to allocate a batch id: $err" unless defined $next;
 
     return Koha::Plugin::Com::OpenFifth::Telford::Format::format_batch_id($next);
 }
@@ -433,6 +443,12 @@ sub _build_batch {
 # rather than propagating (a 500 in the UI, an aborted cron).
 sub _try_generate_batch {
     my ( $self, $args ) = @_;
+
+    my @bad = grep { !( defined $args->{$_} && $args->{$_} =~ /^\d{4}-\d{2}-\d{2}$/ ) } qw(from to);
+    return { num_trans => 0, invoice_ids => [], errors => ["Please give a valid '$bad[0]' date (YYYY-MM-DD)"] } if @bad;
+    return { num_trans => 0, invoice_ids => [], errors => ["The 'from' date is after the 'to' date"] }
+        if $args->{from} gt $args->{to};
+
     my $batch = eval { $self->generate_batch($args) };
     return $batch if $batch;
 
@@ -540,16 +556,10 @@ sub cronjob_nightly {
     my $result   = $self->_deliver_batch( $batch, $filename );
 
     if ( $result->{success} ) {
-        $self->mark_invoices_submitted( $batch->{invoice_ids}, $filename, 'cron' );
         $logger->info("Telford nightly cronjob: delivered $filename ($batch->{num_trans} lines)");
-        $self->_add_run_log(
-            {
-                status         => 'success',
-                invoices_found => scalar @{ $batch->{invoice_ids} },
-                filename       => $filename,
-                message        => "[$from to $to] Delivered $filename",
-            }
-        );
+        if ( my $e = $self->_record_delivery( $batch, $filename, 'cron', "[$from to $to] Delivered $filename" ) ) {
+            $logger->error("Telford nightly cronjob: delivered $filename but could not record it, these invoices WILL be resent: $e");
+        }
     }
     else {
         $logger->error("Telford nightly cronjob: delivery failed for $filename: $result->{error}");
@@ -613,15 +623,8 @@ sub report_step2 {
         my $result   = $self->_deliver_batch( $batch, $filename );
 
         if ( $result->{success} ) {
-            $self->mark_invoices_submitted( $batch->{invoice_ids}, $filename, 'manual' );
-            $self->_add_run_log(
-                {
-                    status         => 'success',
-                    invoices_found => scalar @{ $batch->{invoice_ids} },
-                    filename       => $filename,
-                    message        => "[$from to $to] (manual) Delivered $filename",
-                }
-            );
+            $batch->{record_error} =
+                $self->_record_delivery( $batch, $filename, 'manual', "[$from to $to] (manual) Delivered $filename" );
             $batch->{filename} = $filename;
             $batch->{delivered} = 1;
         }
@@ -750,6 +753,16 @@ C<{ success => 0, error => $message }>.
 sub _deliver_batch {
     my ( $self, $batch, $filename ) = @_;
 
+    my $result = eval { $self->_deliver_batch_unsafe( $batch, $filename ) };
+    return $result if $result;
+
+    ( my $e = $@ ) =~ s/ at \S+ line \d+\.?\s*$//;
+    return { success => 0, error => "Unexpected delivery error: $e" };
+}
+
+sub _deliver_batch_unsafe {
+    my ( $self, $batch, $filename ) = @_;
+
     my $output = $self->retrieve_data('output') || 'file';
 
     if ( $output eq 'upload' ) {
@@ -777,6 +790,30 @@ sub _deliver_batch {
 
         return { success => 1, path => $path };
     }
+}
+
+# Runs after a successful delivery. The file has already gone out, so a
+# bookkeeping failure must not be thrown away: returns an error message
+# (or undef) for the caller to surface, since the invoices would otherwise
+# be sent again on the next run.
+sub _record_delivery {
+    my ( $self, $batch, $filename, $submitted_by, $message ) = @_;
+
+    eval {
+        $self->mark_invoices_submitted( $batch->{invoice_ids}, $filename, $submitted_by );
+        $self->_add_run_log(
+            {
+                status         => 'success',
+                invoices_found => scalar @{ $batch->{invoice_ids} },
+                filename       => $filename,
+                message        => $message,
+            }
+        );
+    };
+    return undef unless $@;
+
+    ( my $e = $@ ) =~ s/ at \S+ line \d+\.?\s*$//;
+    return $e;
 }
 
 sub _generate_filename {

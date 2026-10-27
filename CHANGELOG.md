@@ -21,6 +21,7 @@ along with the comparison links — do not edit the heading or the links by hand
 ### Fixed
 
 - An order or adjustment whose fund has no subcc mapping (or any value too wide for its field) no longer causes a 500 error or an aborted nightly run. The report page now lists exactly what needs fixing, the batch is not sent, and no batch id is consumed. The nightly cron logs the same message as an error run.
+- Hardened the remaining paths that could die with a 500 or abort the cron: batch id allocation now always restores autocommit and rolls back on failure (it could previously leave the shared DB handle in manual-commit mode); delivery errors (upload/filesystem) are returned as a failed delivery; a failure to record a batch as submitted after it was delivered is reported prominently rather than thrown; and missing, malformed or reversed `from`/`to` dates give a message.
 
 ## [0.1.5] - 2026-09-18
 
