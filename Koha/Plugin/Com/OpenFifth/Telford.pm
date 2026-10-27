@@ -41,7 +41,9 @@ sub new {
     $args->{'metadata'}->{'class'} = $class;
 
     my $self = $class->SUPER::new($args);
-    $self->{cgi} = CGI->new();
+    # Koha has already read the POST body into the cgi it hands us; a fresh
+    # CGI->new would see none of it (only cron has no cgi to pass).
+    $self->{cgi} ||= CGI->new();
 
     return $self;
 }
