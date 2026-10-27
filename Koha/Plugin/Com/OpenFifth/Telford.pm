@@ -168,8 +168,12 @@ sub configure {
         my %fund_mappings;
         for my $param_name ( $cgi->param() ) {
             if ( $param_name =~ /^fund_subcc_(.+)$/ ) {
-                my $value = $cgi->param($param_name);
-                $fund_mappings{$1} = $value if $value && $value =~ /\S/;
+
+                # Capture before calling ->param: CGI runs its own regexes and
+                # would clobber $1.
+                my $budget_code = $1;
+                my $value       = $cgi->param($param_name);
+                $fund_mappings{$budget_code} = $value if $value && $value =~ /\S/;
             }
         }
 

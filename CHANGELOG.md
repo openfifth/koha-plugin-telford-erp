@@ -14,7 +14,13 @@ along with the comparison links — do not edit the heading or the links by hand
 
 ### Fixed
 
-- Saving the configuration appeared to succeed but stored nothing - the plugin replaced Koha's request object with a new one that had lost the submitted form data
+- Fund mappings were saved under an empty key, so none of the selected sub cost centres persisted
+
+## [0.3.2] - 2026-10-27
+
+### Fixed
+
+- The plugin now keeps the request object Koha passes in instead of replacing it with a new one
 
 ## [0.3.1] - 2026-10-27
 
@@ -89,7 +95,8 @@ along with the comparison links — do not edit the heading or the links by hand
 
 - Template files moved out of a `templates/` subdirectory to sit flat next to the module - `Koha::Plugins::Base::get_template` (via `Module::Bundled::Files`) only ever looks in the module's own directory, so nothing under `templates/` was ever actually reachable, in this plugin or in the original scaffold it came from
 
-[Unreleased]: https://github.com/openfifth/koha-plugin-telford-erp/compare/v0.3.1...HEAD
+[Unreleased]: https://github.com/openfifth/koha-plugin-telford-erp/compare/v0.3.2...HEAD
+[0.3.2]: https://github.com/openfifth/koha-plugin-telford-erp/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/openfifth/koha-plugin-telford-erp/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/openfifth/koha-plugin-telford-erp/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/openfifth/koha-plugin-telford-erp/compare/v0.1.5...v0.2.0
